@@ -92,7 +92,7 @@ struct Client {
 	int basew, baseh, incw, inch, maxw, maxh, minw, minh, hintsvalid;
 	int bw, oldbw;
 	unsigned int tags;
-	int isfixed, isfloating, isurgent, neverfocus, oldstate, isfullscreen;
+	int isfixed, isfloating, isurgent, neverfocus, oldstate, isfullscreen, center;
 	Client *next;
 	Client *snext;
 	Monitor *mon;
@@ -138,6 +138,7 @@ typedef struct {
 	const char *title;
 	unsigned int tags;
 	int isfloating;
+	int center;
 	int monitor;
 } Rule;
 
@@ -181,7 +182,6 @@ static void killclient(const Arg *arg);
 static void manage(Window w, XWindowAttributes *wa);
 static void mappingnotify(XEvent *e);
 static void maprequest(XEvent *e);
-static void monocle(Monitor *m);
 static void motionnotify(XEvent *e);
 static void movemouse(const Arg *arg);
 static Client *nexttiled(Client *c);
@@ -236,6 +236,7 @@ static int xerrorstart(Display *dpy, XErrorEvent *ee);
 static void zoom(const Arg *arg);
 static void spiral(Monitor *mon);
 static void centeredmaster(Monitor *m);
+static int applycenterrule(Monitor *m);
 
 /* variables */
 static const char broken[] = "broken";
@@ -289,6 +290,7 @@ applyrules(Client *c)
 
 	/* rule matching */
 	c->isfloating = 0;
+	c->center = 0;
 	c->tags = 0;
 	XGetClassHint(dpy, c->win, &ch);
 	class    = ch.res_class ? ch.res_class : broken;
@@ -301,6 +303,7 @@ applyrules(Client *c)
 		&& (!r->instance || strstr(instance, r->instance)))
 		{
 			c->isfloating = r->isfloating;
+			c->center = r->center;
 			c->tags |= r->tags;
 			for (m = mons; m && m->num != r->monitor; m = m->next);
 			if (m)
@@ -400,7 +403,7 @@ void
 arrangemon(Monitor *m)
 {
 	strncpy(m->ltsymbol, m->lt[m->sellt]->symbol, sizeof m->ltsymbol);
-	if (m->lt[m->sellt]->arrange)
+	if (!applycenterrule(m) && m->lt[m->sellt]->arrange)
 		m->lt[m->sellt]->arrange(m);
 }
 
@@ -1101,21 +1104,6 @@ maprequest(XEvent *e)
 		return;
 	if (!wintoclient(ev->window))
 		manage(ev->window, &wa);
-}
-
-void
-monocle(Monitor *m)
-{
-	unsigned int n = 0;
-	Client *c;
-
-	for (c = m->clients; c; c = c->next)
-		if (ISVISIBLE(c))
-			n++;
-	if (n > 0) /* override layout symbol */
-		snprintf(m->ltsymbol, sizeof m->ltsymbol, "[%d]", n);
-	for (c = nexttiled(m->clients); c; c = nexttiled(c->next))
-		resize(c, m->wx, m->wy, m->ww - 2 * c->bw, m->wh - 2 * c->bw, 0);
 }
 
 void
@@ -2226,6 +2214,25 @@ centeredmaster(Monitor *m)
 		}
 	}
 }
+
+int
+applycenterrule(Monitor *m)
+{
+	unsigned int w;
+	Client* c;
+
+	if (!(c = nexttiled(m->clients)))
+		return 1;
+
+	if (!m->sel->center || nexttiled(c->next))
+		return 0;
+	
+	w = m->ww * m->mfact;
+	resize(c, m->wx + (m->ww-w)/2, m->wy,
+		w - (2*c->bw), m->wh - (2*c->bw), 0);
+	return 1;
+}
+
 int
 main(int argc, char *argv[])
 {
